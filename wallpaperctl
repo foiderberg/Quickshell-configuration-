@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+WALLPAPER_DIR="$HOME/Pictures/Wallpapers"
+STATE_DIR="$HOME/.local/state/quickshell-wallpaper"
+CURRENT="$STATE_DIR/current"
+FAVOURITES="$STATE_DIR/favourites"
+
+mkdir -p "$STATE_DIR"
+
+get_images() {
+    mapfile -d '' IMAGES < <(
+        find "$WALLPAPER_DIR" -maxdepth 1 -type f \
+        \( -iname '*.png' -o -iname '*.jpg' -o \
+           -iname '*.jpeg' -o -iname '*.webp' \) \
+        -print0 | sort -z
+    )
+}
+
+apply_wallpaper() {
+    local image="$1"
+    [[ -f "$image" ]] || exit 1
+
+    pkill -x swaybg 2>/dev/null || true
+    nohup swaybg -i "$image" -m fill \
+        >/dev/null 2>&1 </dev/null &
+
+    printf '%s\n' "$image" > "$CURRENT"
+}
+
+get_images
+
+case "$1" in
+    random)
+        ((${#IMAGES[@]})) || exit 1
+
+        current_image=""
+        [[ -f "$CURRENT" ]] && current_image=$(cat "$CURRENT")
+
+        OPTIONS=()
+        for image in "${IMAGES[@]}"; do
+            [[ "$image" != "$current_image" ]] && OPTIONS+=("$image")
+        done
+
+        if ((${#OPTIONS[@]})); then
+            apply_wallpaper "${OPTIONS[RANDOM % ${#OPTIONS[@]}]}"
+        else
+            apply_wallpaper "${IMAGES[0]}"
+        fi
+        ;;
+
+    next|previous)
+        ((${#IMAGES[@]})) || exit 1
+
+        current_image=""
+        [[ -f "$CURRENT" ]] && current_image=$(cat "$CURRENT")
+
+        index=-1
+        for i in "${!IMAGES[@]}"; do
+            [[ "${IMAGES[$i]}" == "$current_image" ]] && index=$i && break
+        done
+
+        if [[ "$1" == "next" ]]; then
+            index=$(( (index + 1) % ${#IMAGES[@]} ))
+        else
+            index=$(( (index - 1 + ${#IMAGES[@]}) % ${#IMAGES[@]} ))
+        fi
+
+        apply_wallpaper "${IMAGES[$index]}"
+        ;;
+
+    current)
+        [[ -f "$CURRENT" ]] && cat "$CURRENT"
+        ;;
+
+    list)
+        printf '%s\n' "${IMAGES[@]}"
+        ;;
+
+    set)
+        apply_wallpaper "$2"
+        ;;
+
+    favourite)
+        [[ -f "$CURRENT" ]] || exit 1
+        image=$(cat "$CURRENT")
+        touch "$FAVOURITES"
+
+        if grep -Fxq -- "$image" "$FAVOURITES"; then
+            echo "Already favourited"
+        else
+            printf '%s\n' "$image" >> "$FAVOURITES"
+            echo "Added to favourites"
+        fi
+        ;;
+
+    favourites)
+        [[ -f "$FAVOURITES" ]] && cat "$FAVOURITES"
+        ;;
+
+    *)
+        echo "Usage: wallpaperctl {random|next|previous|current|list|set|favourite|favourites}"
+        exit 1
+        ;;
+esac
+
